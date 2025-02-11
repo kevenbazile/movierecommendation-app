@@ -1,5 +1,5 @@
 // src/lib/firebase.ts
-import { initializeApp } from "firebase/app";
+import { initializeApp, FirebaseApp } from "firebase/app";
 import {
   getAuth,
   onAuthStateChanged,
@@ -15,9 +15,8 @@ import {
   getDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { useRouter } from "next/navigation"; // ✅ Import useRouter
 
-// Firebase configuration
+// ✅ Firebase configuration
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -27,8 +26,17 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// ✅ Ensure Firebase is Initialized **Once**
+let app: FirebaseApp;
+try {
+  app = initializeApp(firebaseConfig);
+  console.log("✅ Firebase Initialized Successfully");
+} catch (error) {
+  console.error("🚨 Firebase Initialization Error:", error);
+  throw new Error("🔥 Firebase failed to initialize"); // **Force a failure if init fails**
+}
+
+// ✅ Firebase Services (Guaranteed to be Defined)
 const auth = getAuth(app);
 const db = getFirestore(app);
 
@@ -37,7 +45,7 @@ const listenForAuthChanges = (callback: (user: User | null) => void) => {
   return onAuthStateChanged(auth, callback);
 };
 
-// ✅ Login function (Optimized)
+// ✅ Login function
 const login = async (email: string, password: string) => {
   try {
     console.log("⏳ Attempting to log in...");
@@ -50,55 +58,69 @@ const login = async (email: string, password: string) => {
   }
 };
 
-// ✅ Register function (Optimized)
+// ✅ Register function
 const register = async (email: string, password: string) => {
-  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  try {
+    console.log("⏳ Registering new user...");
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
 
-  // Create a user document in Firestore
-  const user = userCredential.user;
-  await createUserDocument(user.uid, {
-    email: user.email,
-    createdAt: serverTimestamp(),
-    collections: {
-      Favorites: [],
-      "To Watch": [],
-      Watched: [],
-    },
-  });
+    // Create a user document in Firestore
+    await createUserDocument(user.uid, {
+      email: user.email,
+      createdAt: serverTimestamp(),
+      collections: {
+        Favorites: [],
+        "To Watch": [],
+        Watched: [],
+      },
+    });
 
-  return userCredential;
+    console.log("✅ User Registered Successfully:", user);
+    return userCredential;
+  } catch (error) {
+    console.error("🚨 Registration Error:", error);
+    throw error;
+  }
 };
 
 // ✅ Create a user document in Firestore
 const createUserDocument = async (userId: string, data: any) => {
-  const userRef = doc(db, "users", userId);
-  const userSnap = await getDoc(userRef);
+  try {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
 
-  if (!userSnap.exists()) {
-    await setDoc(userRef, data);
+    if (!userSnap.exists()) {
+      await setDoc(userRef, data);
+      console.log(`✅ Firestore document created for User ID: ${userId}`);
+    }
+  } catch (error) {
+    console.error("🚨 Firestore Document Creation Error:", error);
   }
 };
 
-// ✅ Logout function (Fixed)
+// ✅ Logout function
 const logout = async () => {
   try {
     console.warn("🚨 Logging out user...");
     await signOut(auth);
-    sessionStorage.clear(); // ✅ Use sessionStorage for faster session clearing
+    sessionStorage.clear();
     console.log("✅ User has been logged out.");
   } catch (error) {
     console.error("❌ Logout Error:", error);
   }
 };
 
-// ✅ Force Logout function (Fixed)
-const forceLogout = async () => {
+// ✅ Force Logout function (Handled in component)
+const forceLogout = async (redirectCallback: () => void) => {
   try {
-    const router = useRouter(); // ✅ Use router dynamically
     console.warn("🚨 Force logging out user...");
     await signOut(auth);
     sessionStorage.clear();
-    router.push("/auth/login"); // ✅ Corrected navigation
+    console.log("✅ Forced Logout Successful.");
+
+    // ✅ Redirect user (Passed from Component)
+    redirectCallback();
   } catch (error) {
     console.error("❌ Force Logout Error:", error);
   }

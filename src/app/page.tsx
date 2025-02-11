@@ -1,6 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
-import { useAuth } from "@/context/AuthProvider";
+import React, { useEffect, useState, useRef } from "react";
 
 type Movie = {
   id: number;
@@ -8,72 +7,141 @@ type Movie = {
   poster_path: string | null;
   release_date: string;
   vote_average: number;
+  trailer_url: string | null;
 };
 
-const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w200";
+const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
+const YOUTUBE_EMBED_URL = "https://www.youtube.com/embed/";
 
-export default function HomePage() {
-  const { user } = useAuth() || { user: null }; // ✅ Handle null auth state
+export default function TikTokStyleMovies() {
   const [movies, setMovies] = useState<Movie[]>([]);
-  const [collections, setCollections] = useState<Record<string, Movie[]>>({
-    Favorites: [],
-    "To Watch": [],
-    Watched: [],
-  });
-
-  // ✅ Define movie-fetching function inside page.tsx (instead of importing from api.ts)
-  async function fetchMovies() {
-    try {
-      const response = await fetch(
-        `https://api.themoviedb.org/3/movie/popular?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY}`
-      );
-      const data = await response.json();
-      setMovies(data.results || []);
-    } catch (error) {
-      console.error("Failed to fetch movies:", error);
-    }
-  }
+  const videoRefs = useRef<(HTMLIFrameElement | null)[]>([]);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    fetchMovies();
+    fetchPopularMovies();
+  }, []);
 
-    // Load user collections
-    if (user) {
-      const storedCollections = JSON.parse(localStorage.getItem(`collections_${user.uid}`) || "{}");
-      setCollections(storedCollections);
-    }
-  }, [user]);
+  // ✅ Fetch movies
+  const fetchPopularMovies = async () => {
+    const response = await fetch(
+      `https://api.themoviedb.org/3/movie/popular?api_key=${TMDB_API_KEY}&language=en-US&page=1`
+    );
+    const data = await response.json();
+    setMovies(data.results);
+  };
+
+  // ✅ Auto-play trailers when in view
+  const handleIntersection = (entries: IntersectionObserverEntry[]) => {
+    entries.forEach((entry) => {
+      const video = entry.target as HTMLIFrameElement;
+      if (entry.isIntersecting) {
+        video.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+      } else {
+        video.contentWindow?.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+      }
+    });
+  };
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(handleIntersection, { threshold: 0.8 });
+    videoRefs.current.forEach((video) => video && observer.observe(video));
+    return () => observer.disconnect();
+  }, [movies]);
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Welcome, {user?.email || "Guest"}!</h1>
+    <div ref={containerRef} style={styles.container}>
+      {movies.length === 0 ? (
+        <p style={styles.emptyMessage}>Loading movies...</p>
+      ) : (
+        movies.map((movie, index) => (
+          <div key={movie.id} style={styles.movieContainer}>
+            {/* 🎬 YouTube Embedded Trailer */}
+            <iframe
+              ref={(el) => {
+                if (el) videoRefs.current[index] = el;
+              }}
+              src={`${YOUTUBE_EMBED_URL}${movie.trailer_url}?autoplay=0&mute=1&controls=0&modestbranding=1&enablejsapi=1`}
+              frameBorder="0"
+              allow="autoplay; encrypted-media"
+              allowFullScreen
+              title={movie.title}
+              style={styles.video}
+            ></iframe>
 
-      <h2>Your Collections</h2>
-      <div>
-        {Object.keys(collections).map((category) => (
-          <div key={category}>
-            <h3>{category}</h3>
-            <ul>
-              {collections[category]?.map((movie) => (
-                <li key={movie.id}>{movie.title}</li>
-              ))}
-            </ul>
+            {/* 🎭 Movie Details Overlay */}
+            <div style={styles.overlay}>
+              <h2 style={styles.title}>{movie.title}</h2>
+              <p style={styles.details}>⭐ {movie.vote_average} | 📅 {movie.release_date}</p>
+              <a href={`https://www.themoviedb.org/movie/${movie.id}`} target="_blank" rel="noopener noreferrer" style={styles.watchButton}>
+                🎬 Watch on TMDB
+              </a>
+            </div>
           </div>
-        ))}
-      </div>
-
-      <h2>Popular Movies</h2>
-      <div className="movie-list">
-        {movies.map((movie) => (
-          <div key={movie.id} className="movie-item">
-            <img
-              src={movie.poster_path ? `${IMAGE_BASE_URL}${movie.poster_path}` : "https://via.placeholder.com/200x300?text=No+Image"}
-              alt={movie.title}
-            />
-            <p>{movie.title}</p>
-          </div>
-        ))}
-      </div>
+        ))
+      )}
     </div>
   );
 }
+
+// ✅ Styles for the TikTok-like UI
+const styles: { [key: string]: React.CSSProperties } = {
+  container: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    height: "100vh",
+    overflowY: "scroll",
+    scrollSnapType: "y mandatory",
+    backgroundColor: "#000",
+  },
+  movieContainer: {
+    position: "relative",
+    width: "100vw",
+    height: "100vh",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "center",
+    scrollSnapAlign: "start",
+  },
+  video: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+  },
+  overlay: {
+    position: "absolute",
+    bottom: "15%",
+    left: "5%",
+    background: "rgba(0,0,0,0.7)",
+    padding: "10px",
+    borderRadius: "10px",
+    fontSize: "18px",
+    color: "white",
+  },
+  title: {
+    fontSize: "1.5rem",
+    fontWeight: "bold",
+  },
+  details: {
+    fontSize: "1rem",
+    marginTop: "5px",
+  },
+  watchButton: {
+    marginTop: "10px",
+    display: "inline-block",
+    background: "#FF4500",
+    color: "#fff",
+    padding: "8px 15px",
+    borderRadius: "5px",
+    textDecoration: "none",
+    fontWeight: "bold",
+  },
+  emptyMessage: {
+    color: "#888",
+    marginTop: "50px",
+    fontSize: "1.5rem",
+  },
+};
+
