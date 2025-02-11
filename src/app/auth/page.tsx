@@ -1,19 +1,18 @@
+// src/app/page.tsx
 "use client";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthProvider";
+import { db } from "@/lib/firebase";
+import { collection, getDocs } from "firebase/firestore";
 
 type Movie = {
-  id: number;
+  id: string;
   title: string;
-  poster_path: string | null;
-  release_date: string;
-  vote_average: number;
+  poster: string;
 };
 
-const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w200";
-
 export default function HomePage() {
-  const { user } = useAuth() || { user: null }; // ✅ Handle null auth state
+  const { user } = useAuth() || { user: null };
   const [movies, setMovies] = useState<Movie[]>([]);
   const [collections, setCollections] = useState<Record<string, Movie[]>>({
     Favorites: [],
@@ -21,20 +20,22 @@ export default function HomePage() {
     Watched: [],
   });
 
-  // ✅ Define movie-fetching function inside page.tsx (instead of importing from api.ts)
-  async function fetchMovies() {
-    try {
-      const response = await fetch(
-        `https://api.themoviedb.org/3/movie/popular?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY}`
-      );
-      const data = await response.json();
-      setMovies(data.results || []);
-    } catch (error) {
-      console.error("Failed to fetch movies:", error);
-    }
-  }
-
   useEffect(() => {
+    async function fetchMovies() {
+      try {
+        const moviesCollection = collection(db, "movies");
+        const snapshot = await getDocs(moviesCollection);
+
+        const fetchedMovies = snapshot.docs.map((doc) => {
+          const movieData = doc.data() as Movie;
+          return { id: doc.id, title: movieData.title, poster: movieData.poster }; // ✅ Ensuring no duplicate `id`
+        });
+
+        setMovies(fetchedMovies);
+      } catch (error) {
+        console.error("Error fetching movies:", error);
+      }
+    }
     fetchMovies();
 
     // Load user collections
@@ -54,7 +55,7 @@ export default function HomePage() {
           <div key={category}>
             <h3>{category}</h3>
             <ul>
-              {collections[category]?.map((movie) => (
+              {collections[category].map((movie) => (
                 <li key={movie.id}>{movie.title}</li>
               ))}
             </ul>
@@ -67,8 +68,9 @@ export default function HomePage() {
         {movies.map((movie) => (
           <div key={movie.id} className="movie-item">
             <img
-              src={movie.poster_path ? `${IMAGE_BASE_URL}${movie.poster_path}` : "https://via.placeholder.com/200x300?text=No+Image"}
+              src={movie.poster || "/placeholder.jpg"} // ✅ Prevent broken images
               alt={movie.title}
+              onError={(e) => (e.currentTarget.src = "/placeholder.jpg")} // ✅ Set a fallback image if broken
             />
             <p>{movie.title}</p>
           </div>
